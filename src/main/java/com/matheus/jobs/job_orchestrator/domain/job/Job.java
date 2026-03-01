@@ -19,6 +19,9 @@ public class Job {
 
     private Job() {}
 
+    // =========================
+    // FACTORY
+    // =========================
     public static Job create(String type, String payload, String idempotencyKey) {
 
         Job job = new Job();
@@ -34,44 +37,100 @@ public class Job {
         return job;
     }
 
-    public void markProcessing() {
+    // =========================
+    // BEHAVIOUR
+    // =========================
+
+    public void startProcessing() {
         if (status != JobStatus.CREATED) {
-            throw new IllegalStateException("Job cannot be processed from status: " + status);
+            throw new IllegalStateException("Only CREATED jobs can be processed");
         }
-        this.status = JobStatus.PROCESSING;
+        status = JobStatus.PROCESSING;
         touch();
     }
 
     public void markSuccess() {
         if (status != JobStatus.PROCESSING) {
-            throw new IllegalStateException("Job cannot succeed from status: " + status);
+            throw new IllegalStateException("Only PROCESSING jobs can succeed");
         }
-        this.status = JobStatus.SUCCESS;
+        status = JobStatus.SUCCESS;
         touch();
     }
 
     public void markFailure() {
         if (status != JobStatus.PROCESSING) {
-            throw new IllegalStateException("Job cannot fail from status: " + status);
+            throw new IllegalStateException("Only PROCESSING jobs can fail");
         }
 
         attempts++;
 
         if (attempts >= MAX_RETRIES) {
-            this.status = JobStatus.FAILED;
+            status = JobStatus.FAILED;
         } else {
-            this.status = JobStatus.CREATED;
+            status = JobStatus.CREATED;
         }
 
         touch();
     }
 
-    private void touch() {
-        this.updatedAt = Instant.now();
+    public void resetForRetry() {
+        if (!canRetry()) {
+            throw new IllegalStateException(
+                    "Job não pode ser reprocessado: attempts = " + attempts
+            );
+        }
+        attempts++;             // incrementa tentativa
+        status = JobStatus.CREATED; // reseta para CREATED
+        touch();
     }
 
     public boolean canRetry() {
         return attempts < MAX_RETRIES;
     }
+
+    private void touch() {
+        updatedAt = Instant.now();
+    }
+
+    // =========================
+    // REHYDRATION (Persistence)
+    // =========================
+    public static Job rehydrate(
+            UUID id,
+            String type,
+            String payload,
+            JobStatus status,
+            String idempotencyKey,
+            int attempts,
+            Instant createdAt,
+            Instant updatedAt,
+            Long version
+    ) {
+        Job job = new Job();
+        job.id = id;
+        job.type = type;
+        job.payload = payload;
+        job.status = status;
+        job.idempotencyKey = idempotencyKey;
+        job.attempts = attempts;
+        job.createdAt = createdAt;
+        job.updatedAt = updatedAt;
+        job.version = version;
+        return job;
+    }
+
+    // =========================
+    // GETTERS ONLY
+    // =========================
+
+    public UUID getId() { return id; }
+    public String getType() { return type; }
+    public String getPayload() { return payload; }
+    public JobStatus getStatus() { return status; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public int getAttempts() { return attempts; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
+    public Long getVersion() { return version; }
 
 }
